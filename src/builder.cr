@@ -8,7 +8,9 @@ class String
   end
 end
 
-icons = {} of String => String
+def format_filename(str : String)
+  File.basename(str, ".svg").upcase.gsub("-", "_")
+end
 
 def copy(node, xml)
   node.children.each do |child|
@@ -24,96 +26,80 @@ def copy(node, xml)
   end
 end
 
-RENAME = {
-  "123"                => "ONE_TWO_THREE",
-  "12_HOURS"           => "TWELVE_HOURS",
-  "24_HOURS"           => "TWENTY_FOUR_HOURS",
-  "2FA"                => "TWO_FA",
-  "360_VIEW"           => "THREE_SIXTY_VIEW",
-  "360"                => "THREE_SIXTY",
-  "3D_CUBE_SPHERE_OFF" => "THREE_CUBE_SPHERE_OFF",
-  "3D_CUBE_SPHERE"     => "THREE_CUBE_SPHERE",
-  "3D_ROTATE"          => "THREE_ROTATE",
-}
+icons = {} of String => String
 
-Dir.glob("tabler-icons/icons/*").to_a.sort.each do |file|
-  name =
-    File.basename(file, ".svg").upcase.gsub("-", "_")
-
-  if name[0].ascii_number?
-    name = RENAME[name]
-  end
-
+Dir.glob("heroicons/optimized/**/*.svg").to_a.sort.each do |file|
   document = XML.parse(File.read(file))
 
   if svg = document.first_element_child
     string = XML.build(indent: "  ") do |xml|
       xml.element("svg") do
-        xml.attribute("viewBox", svg["viewBox"])
-        xml.element("g") do
-          xml.attribute("style", "stroke-width: var(--tabler-stroke-width);")
-          xml.attribute("stroke-linejoin", svg["stroke-linejoin"])
-          xml.attribute("stroke-linecap", svg["stroke-linecap"])
-          xml.attribute("stroke", "currentColor")
-          xml.attribute("fill", svg["fill"])
+        svg.attributes.each do |attribute|
+          next if attribute.name == "aria-hidden"
 
-          copy(svg, xml)
+          if attribute.name == "stroke-width"
+            xml.attribute("style", "stroke-width: var(--heroicons-stroke-width, #{attribute.content});")
+          else
+            xml.attribute(attribute.name, attribute.content)
+          end
         end
+
+        copy(svg, xml)
       end
     end
 
     html =
-      string.sub("<?xml version=\"1.0\"?>\n", "").indent
+      string
+        .sub("<?xml version=\"1.0\"?>", "")
+        .indent
 
-    icons[name] = html
+    icons[file] = html
   end
 end
 
-content =
-  icons
-    .map { |name, html| "const #{name} =\n#{html}" }
-    .join("\n\n")
-    .indent
+def generate_module_content(icons : Hash(String, String), filter : String, module_name : String)
+  content =
+    icons
+      .select { |file| file.includes?(filter) }
+      .map { |file, html| "const #{format_filename(file)} =\n#{html}" }
+      .join("\n\n")
+      .indent
 
-source =
-  "module TablerIcons {\n#{content}\n}"
-
-mainContent =
-  icons
-    .keys
-    .map { |name| "<{ TablerIcons:#{name} }>" }
-    .join("\n")
-    .indent(8)
-
-main =
   <<-MINT
-  component Main {
-    state strokeWidth : String = "1"
+    // THIS FILE IS AUTO GENERATED
 
-    style base {
-      --tabler-stroke-width: \#{strokeWidth};
-
-      svg {
-        height: 30px;
-        width: 30px;
-      }
+    module #{module_name} {
+      \n#{content}\n
     }
+  MINT
+end
 
+def generate_demo_component(icons : Hash(String, String), module_name : String)
+  content =
+    icons
+      .keys
+      .map { |file| "<{ #{module_name}:#{format_filename(file)} }>" }
+      .join("\n")
+      .indent(8)
+
+  <<-MINT
+  // THIS FILE IS AUTO GENERATED
+  
+  component #{module_name}Demo {
     fun render : Html {
-      <div::base>
-        <input
-          onInput={(event : Html.Event) { next { strokeWidth: Dom.getValue(event.target) } }}
-          value={strokeWidth}
-          step="0.25"
-          type="range"
-          min="1"
-          max="5"/>
-
-  #{mainContent}
+      <div>
+        #{content}
       </div>
     }
   }
   MINT
+end
 
-File.write("source/Icons.mint", source)
-File.write("source/Main.mint", main)
+File.write("source/Icons.mint", generate_module_content(icons, "24/solid", "HeroIcons"))
+File.write("example/source/HeroIconsDemo.mint", generate_demo_component(icons, "HeroIcons"))
+
+File.write("source/IconsOutline.mint", generate_module_content(icons, "24/outline", "HeroIconsOutline"))
+File.write("example/source/HeroIconsOutlineDemo.mint", generate_demo_component(icons, "HeroIconsOutline"))
+
+File.write("source/IconsMini.mint", generate_module_content(icons, "20/solid", "HeroIconsMini"))
+File.write("example/source/HeroIconsMiniDemo.mint", generate_demo_component(icons, "HeroIconsMini"))

@@ -1,7 +1,8 @@
 .PHONY: build
-build: tabler-icons
+
+build: hero-icons
 	crystal run -p src/builder.cr
 	mint format
 
-tabler-icons:
-	git clone https://github.com/tabler/tabler-icons.git
+hero-icons:
+	-git clone https://github.com/tailwindlabs/heroicons
